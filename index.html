@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -15,6 +14,7 @@ body{
  background:#171421;
  color:#f5efff;
  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+ height:100vh;
  height:100dvh;
  display:flex;
  justify-content:center;
@@ -178,8 +178,8 @@ const sendButton = document.getElementById("send");
 // 所有聊天记录
 let savedMessages = [];
 
-// AI 对话上下文
-let history = [];
+// AI 对话上下文（避免与 window.history 冲突，改用 chatHistory）
+let chatHistory = [];
 
 // 保存聊天记录到手机
 function saveMessages(){
@@ -214,7 +214,7 @@ function loadMessages(){
   savedMessages = parsed;
 
   // 恢复聊天上下文，只取成功完成的对话
-  history = savedMessages
+  chatHistory = savedMessages
    .filter(item => item.context === true)
    .slice(-20)
    .map(item => ({
@@ -277,15 +277,16 @@ async function send(){
  saveMessages();
 
  input.value = "";
+ input.style.height = "auto";
  sendButton.disabled = true;
 
  // 加入 AI 对话上下文
- history.push({
+ chatHistory.push({
   role:"user",
   content:text
  });
 
- const requestHistory = history.slice(-20);
+ const requestHistory = chatHistory.slice(-20);
 
  const loading = addMessage("正在想……","ai");
 
@@ -301,7 +302,16 @@ async function send(){
    })
   });
 
-  const data = await response.json();
+  // 先读文本，再解析 JSON，避免服务端返回非 JSON 时报奇怪的错
+  const rawText = await response.text();
+
+  let data;
+
+  try{
+   data = JSON.parse(rawText);
+  }catch(parseError){
+   throw new Error("服务器返回了无法识别的数据");
+  }
 
   if(!response.ok){
    throw new Error(data.error || "请求失败，请稍后再试");
@@ -322,4 +332,63 @@ async function send(){
 
   // 保存 AI 回复
   savedMessages.push({
-   
+   text:data.reply,
+   type:"ai",
+   context:true
+  });
+
+  saveMessages();
+
+  // 把 AI 回复加入上下文
+  chatHistory.push({
+   role:"assistant",
+   content:data.reply
+  });
+
+ }catch(error){
+
+  console.error("发送失败：",error);
+
+  // 移除“正在想……”
+  loading.remove();
+
+  // 显示错误提示
+  addMessage("⚠️ " + (error.message || "网络出错了，请稍后再试"),"ai");
+
+  // 回滚这次失败的上下文，避免污染下一轮对话
+  chatHistory.pop();
+
+ }finally{
+
+  // 无论成功失败都恢复按钮
+  sendButton.disabled = false;
+  input.focus();
+
+ }
+
+}
+
+// 点击发送
+sendButton.addEventListener("click",send);
+
+// 回车发送（Shift+Enter 换行；输入法组合中不误发）
+input.addEventListener("keydown",(event)=>{
+
+ if(event.key === "Enter" && !event.shiftKey && !event.isComposing){
+  event.preventDefault();
+  send();
+ }
+
+});
+
+// textarea 自动增高
+input.addEventListener("input",()=>{
+ input.style.height = "auto";
+ input.style.height = Math.min(input.scrollHeight,110) + "px";
+});
+
+// 启动时恢复聊天记录
+loadMessages();
+</script>
+</body>
+</html>
