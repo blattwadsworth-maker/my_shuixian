@@ -168,22 +168,93 @@ button:disabled{
 <script>
 const API_URL = "https://shuixian.blattwadsworth.workers.dev/chat";
 
+// 本地聊天记录存储名称
+const STORAGE_KEY = "shuixian_chat_history_v1";
+
 const input = document.getElementById("input");
 const messages = document.getElementById("messages");
 const sendButton = document.getElementById("send");
 
-// 保存本次打开页面期间的聊天上下文
-const history = [];
+// 所有聊天记录
+let savedMessages = [];
 
-function addMessage(text, type){
+// AI 对话上下文
+let history = [];
+
+// 保存聊天记录到手机
+function saveMessages(){
+
+ try{
+  // 最多保存最近500条消息
+  savedMessages = savedMessages.slice(-500);
+
+  localStorage.setItem(
+   STORAGE_KEY,
+   JSON.stringify(savedMessages)
+  );
+
+ }catch(error){
+  console.error("保存聊天记录失败：",error);
+ }
+}
+
+// 从手机恢复聊天记录
+function loadMessages(){
+
+ try{
+
+  const data = localStorage.getItem(STORAGE_KEY);
+
+  if(!data) return;
+
+  const parsed = JSON.parse(data);
+
+  if(!Array.isArray(parsed)) return;
+
+  savedMessages = parsed;
+
+  // 恢复聊天上下文，只取成功完成的对话
+  history = savedMessages
+   .filter(item => item.context === true)
+   .slice(-20)
+   .map(item => ({
+    role:item.type === "user" ? "user" : "assistant",
+    content:item.text
+   }));
+
+  // 隐藏欢迎页面
+  if(savedMessages.length > 0){
+   document.getElementById("welcome")?.remove();
+  }
+
+  // 恢复所有聊天气泡
+  savedMessages.forEach(item=>{
+   addMessage(item.text,item.type);
+  });
+
+ }catch(error){
+
+  console.error("恢复聊天记录失败：",error);
+
+ }
+
+}
+
+// 添加聊天消息
+function addMessage(text,type){
+
  const bubble = document.createElement("div");
+
  bubble.className = "message " + type;
  bubble.textContent = text;
+
  messages.appendChild(bubble);
  messages.scrollTop = messages.scrollHeight;
+
  return bubble;
 }
 
+// 发送消息
 async function send(){
 
  const text = input.value.trim();
@@ -193,21 +264,30 @@ async function send(){
  document.getElementById("welcome")?.remove();
 
  // 显示用户消息
- addMessage(text, "user");
+ addMessage(text,"user");
+
+ // 保存用户消息
+ const userRecord = {
+  text:text,
+  type:"user",
+  context:false
+ };
+
+ savedMessages.push(userRecord);
+ saveMessages();
 
  input.value = "";
  sendButton.disabled = true;
 
- // 将用户消息加入对话历史
+ // 加入 AI 对话上下文
  history.push({
   role:"user",
   content:text
  });
 
- // 只保留最近20条消息
  const requestHistory = history.slice(-20);
 
- const loading = addMessage("正在想……", "ai");
+ const loading = addMessage("正在想……","ai");
 
  try{
 
@@ -234,44 +314,12 @@ async function send(){
   // 移除等待提示
   loading.remove();
 
-  // 显示真正的 AI 回复
-  addMessage(data.reply, "ai");
+  // 显示 AI 回复
+  addMessage(data.reply,"ai");
 
-  // 保存 AI 回复到对话历史
-  history.push({
-   role:"assistant",
-   content:data.reply
-  });
+  // 标记用户消息已经成功进入对话
+  userRecord.context = true;
 
-  // 最多保留最近20条
-  if(history.length > 20){
-   history.splice(0, history.length - 20);
-  }
-
- }catch(error){
-
-  loading.textContent =
-   "连接出了点问题：" + error.message + "。你可以再试一次。";
-
-  console.error("水仙请求错误：",error);
-
- }finally{
-
-  sendButton.disabled = false;
-  input.focus();
-
- }
-}
-
-document.getElementById("send").addEventListener("click",send);
-
-input.addEventListener("keydown",e=>{
- if(e.key === "Enter" && !e.shiftKey){
-  e.preventDefault();
-  send();
- }
-});
-</script>
-
-</body>
-</html>
+  // 保存 AI 回复
+  savedMessages.push({
+   
